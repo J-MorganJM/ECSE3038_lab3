@@ -1,6 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_pymongo import PyMongo
 from datetime import datetime, date
+from marshmallow import Schema, fields
+from bson.json_util import dumps
+from json import loads
+
 
 app = Flask(__name__)
 app.config["MONGO_URI"] = "mongodb+srv://marcwil:hOJu0fwOFSkD379q@cluster0.upfx3.mongodb.net/Tank_DB?retryWrites=true&w=majority"
@@ -15,6 +19,15 @@ user_object = {
         "role" : "default",
         "last_updated" : "default"
     }
+
+
+# Tank Structure
+class TankSchema(Schema):
+    location = fields.String(requried = True)
+    lat = fields.Float(required = True)
+    long = fields.Float(required = True)
+    p = fields.Integer(required = True)
+
 
 TANK_DB = []    # Database for Tank Objects
 Id = 0
@@ -85,30 +98,28 @@ def patch_user():
 
 #------------------------ Tank Routes -----------------------
 
-# GET Tanks 
-@app.route("/data", methods =["GET"])
-def display_tanks():
-	return  jsonify(TANK_DB)
-
 # POST Tanks
 @app.route("/data", methods = ["POST"])
 def post_tank():
-    loc = request.json["location"]
-    lat = request.json["latitude"]
-    long = request.json["longitude"]
-    p = request.json["percentage_full"]
-   
-    global Id
-    Id+=1
-    tank_object = {
-        "id": Id,
-        "location": loc,
-        "latitude": lat,
-        "longitude": long,
-        "percentage_full": p
-    }
-    TANK_DB.append(tank_object)
-    return jsonify(tank_object)
+    request_dict = request.json
+    new_tank = TankSchema().load(request_dict)
+
+    tank_document = mongo.db.tanks.insert_one(new_tank)
+    tank_id = tank_document.inserted_id
+
+    tank = mongo.db.tanks.find_one({"_id": tank_id})
+
+    tank_json = loads(dumps(tank))
+
+    return jsonify(tank_json)
+
+# GET Tanks 
+@app.route("/data", methods =["GET"])
+def display_tanks():
+    tanks = mongo.db.tanks.find()
+    temp = dumps(tanks)
+    tanks_list = loads(temp)
+    return jsonify(tanks_list)
 
 # PATCH Tank
 @app.route("/data/<int:id>", methods = ["PATCH"])
@@ -129,14 +140,15 @@ def patch_tank(id):
     return "Tank ID not found"
 
 # DELETE Tank 
-@app.route("/data/<int:id>", methods =["DELETE"])
+@app.route("/data/<ObjectId:id>", methods =["DELETE"])
 def delete_tank(id):
-    for u in TANK_DB:
-        if u["id"] == id:
-            TANK_DB.remove(u)
-            return "Success"
-
-    return "Tank ID not found"
+    result = mongo.db.tanks.delete_one({"_id": id})
+    if result.deleted_count == 1:
+        return {
+            "success" : True
+        }
+    elif result.deleted_count == 0:
+        return "Tank ID not found"
 
 # API running loop
 if __name__ == '__main__':
